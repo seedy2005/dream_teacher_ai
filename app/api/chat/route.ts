@@ -1,44 +1,41 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { generateText } from "ai"
-import { google } from "@ai-sdk/google"
+import { NextApiRequest, NextApiResponse } from "next";
+import OpenAI from "openai";
 
-export async function POST(req: NextRequest) {
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const { message, mentorProfile, studentName, context } = await req.json()
+    const { message, mentorProfile, studentName, context, chatHistory } = req.body;
 
-    // Create a comprehensive system prompt based on the mentor profile and student context
-    const systemPrompt = `You are ${mentorProfile.name}, an AI mentor with the following characteristics:
-    
-    Personality: ${mentorProfile.personality}
-    Teaching Style: ${mentorProfile.teachingStyle}
-    Subjects: ${mentorProfile.subjects.join(", ")}
-    Motto: "${mentorProfile.motto}"
-    
-    You are mentoring ${studentName}, a student with these details:
-    - Interests: ${context.interests?.join(", ") || "Not specified"}
-    - Study Style: ${context.studyStyle || "Not specified"}
-    - Career Interests: ${context.careerPath || "Exploring options"}
-    - Aptitude Strengths: ${context.aptitudeResults || "Not assessed"}
-    
-    Your role is to be a comprehensive life-long learning assistant like Jarvis - helping with academics, career guidance, personal development, motivation, and any questions the student has. Always be encouraging, personalized, and educational. Adapt your responses to match your personality and teaching style while being helpful and supportive.
-    
-    Keep responses conversational but informative, and always try to connect topics back to the student's interests and goals when relevant.`
+    const prompt = `
+You are ${mentorProfile.name}, a ${mentorProfile.personality} AI mentor.
+You teach: ${mentorProfile.subjects.join(", ")}.
+Student: ${studentName}
+Interests: ${context.interests.join(", ")}
+Learning Style: ${context.studyStyle}
+Aptitude Score: ${context.aptitudeScore}/5
 
-    const { text } = await generateText({
-      model: google("gemini-1.5-flash"),
-      system: systemPrompt,
-      prompt: message,
-      maxTokens: 500,
-    })
+Here is the chat history:
+${chatHistory.map((m: any) => `${m.role === "user" ? studentName : mentorProfile.name}: ${m.content}`).join("\n")}
 
-    return NextResponse.json({ response: text })
-  } catch (error) {
-    console.error("Chat API error:", error)
-    return NextResponse.json(
-      {
-        error: "Failed to generate response. Please check your API configuration.",
-      },
-      { status: 500 },
-    )
+Respond helpfully, encouragingly, and in the tone of the mentor. 
+Answer the latest student question:
+"${message}"
+    `;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "You are a helpful and encouraging AI mentor." },
+        { role: "user", content: prompt },
+      ],
+    });
+
+    res.status(200).json({ response: completion.choices[0].message?.content });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ response: "Oops, something went wrong. Try again!" });
   }
 }
